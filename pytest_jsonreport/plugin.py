@@ -1,3 +1,5 @@
+from __future__ import unicode_literals, print_function, absolute_import, division
+
 from collections import Counter, OrderedDict
 from contextlib import contextmanager
 import json
@@ -5,6 +7,16 @@ import logging
 import time
 
 import pytest
+import six
+
+
+def merge_dicts(*dicts):
+    """Update subsequent dictionaries in to first"""
+    iter_dicts = iter(dicts)
+    result = next(iter_dicts)
+    for d in iter_dicts:
+        result.update(d)
+    return result
 
 
 class JSONReport:
@@ -115,7 +127,7 @@ class JSONReport:
         }
         if not self.want_summary:
             json_report['collectors'] = self.collectors
-            json_report['tests'] = list(self.tests.values())
+            json_report['tests'] = list(six.itervalues(self.tests))
             if self.warnings:
                 json_report['warnings'] = self.warnings
         self.config.hook.pytest_json_modifyreport(json_report=json_report)
@@ -139,7 +151,7 @@ class JSONReport:
 
     def add_metadata(self):
         """Add metadata from test items to the report."""
-        for item, test in self.tests.items():
+        for item, test in six.iteritems(self.tests):
             try:
                 metadata = item._json_metadata
             except AttributeError:
@@ -169,11 +181,13 @@ class JSONReport:
             'nodeid': report.nodeid,
             # This is the outcome of the collection, not the test outcome
             'outcome': report.outcome,
-            'children': [{
-                'nodeid': node.nodeid,
-                'type': node.__class__.__name__,
-                **self.json_location(node),
-            } for node in report.result],
+            'children': [merge_dicts(
+                {
+                    'nodeid': node.nodeid,
+                    'type': node.__class__.__name__,
+                },
+                self.json_location(node))
+             for node in report.result],
         }
 
     def json_location(self, node):
@@ -190,27 +204,33 @@ class JSONReport:
 
     def json_testitem(self, item):
         """Return JSON-serializable test item."""
-        return {
-            'nodeid': item.nodeid,
+        return merge_dicts(
+            {
+                'nodeid': item.nodeid,
+            },
             # Adding the location in the collector dict *and* here appears
             # redundant, but the docs say they may be different
-            **self.json_location(item),
+            self.json_location(item),
             # item.keywords is actually a dict, but we just save the keys
-            'keywords': list(item.keywords),
-            # The outcome will be overridden in case of failure
-            'outcome': 'passed',
-        }
+            {
+                'keywords': list(item.keywords),
+                # The outcome will be overridden in case of failure
+                'outcome': 'passed',
+            },
+        )
 
     def json_teststage(self, item, report):
         """Return JSON-serializable test stage (setup/call/teardown)."""
-        stage = {
-            'duration': report.duration,
-            'outcome': report.outcome,
-            **self.json_crash(report),
-            **self.json_traceback(report),
-            **self.json_streams(item, report.when),
-            **self.json_log(item, report.when),
-        }
+        stage = merge_dicts(
+            {
+                'duration': report.duration,
+                'outcome': report.outcome,
+            },
+            self.json_crash(report),
+            self.json_traceback(report),
+            self.json_streams(item, report.when),
+            self.json_log(item, report.when),
+        )
         if report.longreprtext:
             stage['longrepr'] = report.longreprtext
         return stage
@@ -260,8 +280,8 @@ class JSONReport:
 
     def json_summary(self):
         """Return JSON-serializable test result summary."""
-        summary = Counter([t['outcome'] for t in self.tests.values()])
-        summary['total'] = sum(summary.values())
+        summary = Counter([t['outcome'] for t in six.itervalues(self.tests)])
+        summary['total'] = sum(six.itervalues(summary))
         return summary
 
     @pytest.fixture
@@ -278,7 +298,7 @@ class JSONReport:
 class LoggingHandler(logging.Handler):
 
     def __init__(self):
-        super().__init__()
+        super(LoggingHandler, self).__init__()
         self.records = []
 
     def emit(self, record):

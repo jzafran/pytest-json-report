@@ -1,12 +1,17 @@
+from __future__ import unicode_literals, print_function, absolute_import, division
+
 import json
 import logging
 import pytest
+import six
 
 from pytest_jsonreport.plugin import JSONReport
 
 
 # Some test cases borrowed from github.com/mattcl/pytest-json
 FILE = """
+from __future__ import unicode_literals, print_function, absolute_import, division
+
 import sys
 import pytest
 
@@ -178,7 +183,7 @@ def test_report_collectors(make_json):
         'nodeid': 'test_report_collectors.py::test_pass',
         'type': 'Function',
         'path': 'test_report_collectors.py',
-        'lineno': 24,
+        'lineno': 26,
         'domain': 'test_pass',
     } in collectors[1]['children']
 
@@ -244,35 +249,38 @@ def test_report_crash_and_traceback(tests):
     assert 'traceback' not in tests['pass']['call']
     call = tests['fail_nested']['call']
     assert call['crash']['path'].endswith('test_report_crash_and_traceback.py')
-    assert call['crash']['lineno'] == 54
+    assert call['crash']['lineno'] == 56
     assert call['crash']['message'].startswith('TypeError: unsupported ')
-    assert call['traceback'] == [
+    expected_traceback = [
         {
             'path': 'test_report_crash_and_traceback.py',
-            'lineno': 65,
+            'lineno': 67,
             'message': ''
         },
         {
             'path': 'test_report_crash_and_traceback.py',
-            'lineno': 63,
+            'lineno': 65,
             'message': 'in foo'
         },
         {
             'path': 'test_report_crash_and_traceback.py',
-            'lineno': 63,
+            'lineno': 65,
             'message': 'in <listcomp>'
         },
         {
             'path': 'test_report_crash_and_traceback.py',
-            'lineno': 59,
+            'lineno': 61,
             'message': 'in bar'
         },
         {
             'path': 'test_report_crash_and_traceback.py',
-            'lineno': 54,
+            'lineno': 56,
             'message': 'TypeError'
         }
     ]
+    if six.PY2:
+        del expected_traceback[2]
+    assert call['traceback'] == expected_traceback
 
 
 def test_no_traceback(make_json):
@@ -401,6 +409,7 @@ def test_logging(make_json):
     data = make_json("""
         import logging
         import pytest
+        import six
 
         @pytest.fixture
         def fixture(request):
@@ -413,7 +422,9 @@ def test_logging(make_json):
             logging.error('log error')
             try:
                 raise
-            except RuntimeError:
+            except (RuntimeError, TypeError) as exc:
+                if not isinstance(exc, RuntimeError if six.PY3 else TypeError):
+                    raise
                 logging.getLogger().debug('log %s', 'debug', exc_info=True)
     """, ['--json-report', '--log-level=DEBUG'])
     test = data['tests'][0]
